@@ -1,0 +1,194 @@
+.mpt-language-switcher {
+    position: relative;
+    display: inline-block;
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 14px;
+    line-height: 1.2;
+    vertical-align: middle;
+}
+
+.mpt-language-switcher::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    right: -12px;
+    display: block;
+    width: calc(100% + 24px);
+    min-width: 72px;
+    height: 18px;
+}
+
+.mpt-language-current {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-width: 50px;
+    min-height: 34px;
+    padding: 4px 8px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    box-shadow: none;
+}
+
+.mpt-language-current:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.75);
+    outline-offset: 2px;
+}
+
+.mpt-caret {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-right: 2px solid #fff;
+    border-bottom: 2px solid #fff;
+    margin-top: -3px;
+    transform: rotate(45deg);
+    transition: transform 180ms ease;
+}
+
+.mpt-language-switcher:hover .mpt-caret,
+.mpt-language-switcher.is-open .mpt-caret {
+    margin-top: 3px;
+    transform: rotate(225deg);
+}
+
+.mpt-language-options {
+    position: absolute;
+    z-index: 9999;
+    top: calc(100% + 12px);
+    right: auto;
+    left: 50%;
+    display: none;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border: 0;
+    border-radius: 1px;
+    background: #fff !important;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+    transform: translateX(-50%);
+    pointer-events: auto;
+}
+
+.mpt-language-options::before {
+    content: "";
+    position: absolute;
+    top: -11px;
+    right: auto;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-right: 12px solid transparent;
+    border-bottom: 12px solid #fff;
+    border-left: 12px solid transparent;
+    transform: translateX(-50%);
+}
+
+.mpt-language-switcher.is-open .mpt-language-options {
+    display: block;
+}
+
+.mpt-language-switcher:hover .mpt-language-options,
+.mpt-language-switcher:focus-within .mpt-language-options {
+    display: block;
+}
+
+.mpt-language-options a {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 44px;
+    padding: 9px 18px 9px 14px;
+    border-radius: 0;
+    background: transparent !important;
+    color: #111 !important;
+    font-family: "Bebas Neue", sans-serif;
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: 0.02em;
+    text-decoration: none !important;
+    white-space: nowrap;
+}
+
+.mpt-language-options li + li {
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.mpt-language-options a:hover,
+.mpt-language-options a:focus {
+    background: #f7f7f7 !important;
+    color: #111 !important;
+}
+
+.mpt-flag {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.4em;
+    font-size: 23px;
+    font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+    line-height: 1;
+    text-align: center;
+}
+
+.mpt-language-options .mpt-flag {
+    width: 1.45em;
+    font-size: 20px;
+}
+
+.mpt-language-options .mpt-name {
+    color: #111 !important;
+}
+
+.mpt-language-current .mpt-name {
+    display: none;
+}
+
+.mpt-menu-item > a {
+    display: none;
+}
+
+.mpt-header-language-slot {
+    display: none;
+}
+
+@media (max-width: 991px) {
+    .site-header .site-header__inner {
+        position: relative;
+    }
+
+    .mpt-header-language-slot {
+        position: absolute;
+        top: 50%;
+        left: var(--mpt-header-switcher-left, 50%);
+        z-index: 1002;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transform: translateY(-50%);
+    }
+
+    .site-nav .mpt-menu-item {
+        display: none;
+    }
+
+    .mpt-header-language-slot .mpt-language-current {
+        width: 36px;
+        min-width: 36px;
+        height: 36px;
+        min-height: 36px;
+        padding: 0;
+    }
+
+    .mpt-header-language-slot .mpt-language-options {
+        right: auto;
+        left: 50%;
+        transform: translateX(-50%);
+    }
+}
