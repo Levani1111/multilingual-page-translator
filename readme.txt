@@ -1,5 +1,5 @@
 === Multilingual Page Translator ===
-Contributors: codex
+Contributors: L.P.
 Tags: translation, multilingual, acf, pages, language switcher
 Requires at least: 6.0
 Tested up to: 6.5
