@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Multilingual Page Translator
  * Description: Duplicate and translate WordPress pages, including ACF fields and internal links, with a flag language dropdown for menus.
- * Version: 1.0.70
+ * Version: 1.0.71
  * Author: L.P.
  * Text Domain: multilingual-page-translator
  */
@@ -62,6 +62,7 @@ final class MPT_Multilingual_Page_Translator
         add_filter('wp_nav_menu_items', array($this, 'append_switcher_to_menu'), 10, 2);
         add_filter('get_custom_logo', array($this, 'filter_custom_logo_link'));
         add_filter('the_title', array($this, 'translate_attachment_title'), 10, 2);
+        add_filter('acf/load_value', array($this, 'load_translated_acf_option_value'), 20, 3);
         add_filter('acf/format_value', array($this, 'translate_acf_formatted_value'), 20, 3);
         add_filter('query_vars', array($this, 'register_query_vars'));
         add_filter('page_link', array($this, 'filter_page_link'), 10, 2);
@@ -92,17 +93,17 @@ final class MPT_Multilingual_Page_Translator
             ));
         }
 
-        update_option(self::OPTION_VERSION, '1.0.70');
+        update_option(self::OPTION_VERSION, '1.0.71');
         flush_rewrite_rules();
     }
 
     public function register_assets()
     {
         $url = plugin_dir_url(__FILE__);
-        wp_register_style('mpt-front', $url . 'assets/mpt-front.css', array(), '1.0.70');
-        wp_register_style('mpt-admin', $url . 'assets/mpt-admin.css', array(), '1.0.70');
-        wp_register_script('mpt-front', $url . 'assets/mpt-front.js', array(), '1.0.70', true);
-        wp_register_script('mpt-admin', $url . 'assets/mpt-admin.js', array(), '1.0.70', true);
+        wp_register_style('mpt-front', $url . 'assets/mpt-front.css', array(), '1.0.71');
+        wp_register_style('mpt-admin', $url . 'assets/mpt-admin.css', array(), '1.0.71');
+        wp_register_script('mpt-front', $url . 'assets/mpt-front.js', array(), '1.0.71', true);
+        wp_register_script('mpt-admin', $url . 'assets/mpt-admin.js', array(), '1.0.71', true);
     }
 
     public function enqueue_front_assets()
@@ -1794,6 +1795,68 @@ final class MPT_Multilingual_Page_Translator
         return $value === null ? $pre_option : $value;
     }
 
+    public function load_translated_acf_option_value($value, $post_id, $field)
+    {
+        if (is_admin() || !$this->is_acf_option_post_id($post_id) || !is_array($field)) {
+            return $value;
+        }
+
+        $lang = $this->get_current_language();
+        if (!$lang || $lang === $this->get_default_language()) {
+            return $value;
+        }
+
+        foreach ($this->acf_option_value_names($field, $lang) as $option_name) {
+            $translated_value = get_option($option_name, null);
+            if ($translated_value !== null) {
+                return maybe_unserialize($translated_value);
+            }
+        }
+
+        return $value;
+    }
+
+    private function is_acf_option_post_id($post_id)
+    {
+        if (!is_string($post_id)) {
+            return false;
+        }
+
+        return in_array($post_id, array('option', 'options'), true) || strpos($post_id, 'options_') === 0;
+    }
+
+    private function acf_option_value_names($field, $lang)
+    {
+        $names = array();
+        $field_name = isset($field['name']) ? (string) $field['name'] : '';
+        if ($field_name === '') {
+            return $names;
+        }
+
+        $default_prefix = 'options_';
+        $target_prefix = 'options_' . sanitize_key($lang) . '_';
+        $default_lang_prefix = 'options_' . $this->get_default_language() . '_';
+
+        if (strpos($field_name, $target_prefix) === 0) {
+            $names[] = $field_name;
+        } elseif (strpos($field_name, $default_prefix) === 0) {
+            $names[] = $target_prefix . substr($field_name, strlen($default_prefix));
+        } elseif (strpos($field_name, $default_lang_prefix) === 0) {
+            $names[] = $target_prefix . substr($field_name, strlen($default_lang_prefix));
+        } else {
+            $names[] = $target_prefix . $field_name;
+        }
+
+        if (!empty($field['key']) && is_string($field['key'])) {
+            $reference_value = get_option('_options_' . $field_name, null);
+            if ($reference_value === $field['key']) {
+                $names[] = $target_prefix . $field_name;
+            }
+        }
+
+        return array_values(array_unique(array_filter($names)));
+    }
+
     private function translate_option_values($source_lang, $target_lang)
     {
         return $this->copy_option_values($source_lang, $target_lang, true);
@@ -1919,8 +1982,8 @@ final class MPT_Multilingual_Page_Translator
 
     public function maybe_flush_rewrite_rules()
     {
-        if (get_option(self::OPTION_VERSION) !== '1.0.70') {
-            update_option(self::OPTION_VERSION, '1.0.70');
+        if (get_option(self::OPTION_VERSION) !== '1.0.71') {
+            update_option(self::OPTION_VERSION, '1.0.71');
             flush_rewrite_rules();
         }
     }
