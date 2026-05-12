@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Multilingual Page Translator
  * Description: Duplicate and translate WordPress pages, including ACF fields and internal links, with a flag language dropdown for menus.
- * Version: 1.0.69
+ * Version: 1.0.70
  * Author: L.P.
  * Text Domain: multilingual-page-translator
  */
@@ -92,17 +92,17 @@ final class MPT_Multilingual_Page_Translator
             ));
         }
 
-        update_option(self::OPTION_VERSION, '1.0.69');
+        update_option(self::OPTION_VERSION, '1.0.70');
         flush_rewrite_rules();
     }
 
     public function register_assets()
     {
         $url = plugin_dir_url(__FILE__);
-        wp_register_style('mpt-front', $url . 'assets/mpt-front.css', array(), '1.0.69');
-        wp_register_style('mpt-admin', $url . 'assets/mpt-admin.css', array(), '1.0.69');
-        wp_register_script('mpt-front', $url . 'assets/mpt-front.js', array(), '1.0.69', true);
-        wp_register_script('mpt-admin', $url . 'assets/mpt-admin.js', array(), '1.0.69', true);
+        wp_register_style('mpt-front', $url . 'assets/mpt-front.css', array(), '1.0.70');
+        wp_register_style('mpt-admin', $url . 'assets/mpt-admin.css', array(), '1.0.70');
+        wp_register_script('mpt-front', $url . 'assets/mpt-front.js', array(), '1.0.70', true);
+        wp_register_script('mpt-admin', $url . 'assets/mpt-admin.js', array(), '1.0.70', true);
     }
 
     public function enqueue_front_assets()
@@ -726,7 +726,11 @@ final class MPT_Multilingual_Page_Translator
                     $title = get_the_title($translated_id);
                 }
             } elseif ($type === 'custom') {
-                $url = $this->translate_menu_url($url, $target_lang);
+                $custom_link = $this->translate_custom_menu_link($url, $target_lang);
+                $url = $custom_link['url'];
+                if ($custom_link['title'] !== '') {
+                    $title = $custom_link['title'];
+                }
             }
 
             if ($title !== '') {
@@ -763,6 +767,81 @@ final class MPT_Multilingual_Page_Translator
         }
 
         return $this->get_translation_id($group, $target_lang, array('publish', 'draft', 'private', 'pending'));
+    }
+
+    private function translate_custom_menu_link($url, $target_lang)
+    {
+        $url = (string) $url;
+        $page_id = $this->get_page_id_from_menu_url($url);
+        if ($page_id) {
+            $translated_id = $this->get_translated_menu_page_id($page_id, $target_lang);
+            if ($translated_id) {
+                return array(
+                    'url' => $this->append_url_fragment($this->get_language_permalink($translated_id, $target_lang), $url),
+                    'title' => get_the_title($translated_id),
+                );
+            }
+        }
+
+        return array(
+            'url' => $this->translate_menu_url($url, $target_lang),
+            'title' => '',
+        );
+    }
+
+    private function get_page_id_from_menu_url($url)
+    {
+        $url = trim((string) $url);
+        if ($url === '' || $url === '#' || strpos($url, '#') === 0) {
+            return 0;
+        }
+
+        $absolute_url = $this->absolute_menu_url($url);
+        $page_id = url_to_postid($absolute_url);
+        if ($page_id && get_post_type($page_id) === 'page') {
+            return (int) $page_id;
+        }
+
+        $path = trim((string) wp_parse_url($absolute_url, PHP_URL_PATH), '/');
+        if ($path === '') {
+            return (int) get_option('page_on_front');
+        }
+
+        $path = preg_replace('/^(?:' . implode('|', array_map('preg_quote', wp_list_pluck($this->get_languages(), 'code'))) . ')\//', '', $path);
+        $pages = get_pages(array('post_status' => array('publish', 'draft', 'private', 'pending')));
+        foreach ($pages as $page) {
+            $page_path = trim((string) wp_parse_url(get_permalink($page->ID), PHP_URL_PATH), '/');
+            $page_path = preg_replace('/^(?:' . implode('|', array_map('preg_quote', wp_list_pluck($this->get_languages(), 'code'))) . ')\//', '', $page_path);
+            if ($page_path === $path) {
+                return (int) $page->ID;
+            }
+        }
+
+        return 0;
+    }
+
+    private function absolute_menu_url($url)
+    {
+        $url = trim((string) $url);
+        if (preg_match('#^https?://#i', $url)) {
+            return $url;
+        }
+
+        if (strpos($url, '//') === 0) {
+            return (is_ssl() ? 'https:' : 'http:') . $url;
+        }
+
+        return home_url('/' . ltrim($url, '/'));
+    }
+
+    private function append_url_fragment($target_url, $source_url)
+    {
+        $fragment = (string) wp_parse_url($source_url, PHP_URL_FRAGMENT);
+        if ($fragment === '') {
+            return $target_url;
+        }
+
+        return untrailingslashit($target_url) . '/#' . rawurlencode($fragment);
     }
 
     private function duplicate_page($source_id, $target_lang, $auto_translate)
@@ -1541,7 +1620,7 @@ final class MPT_Multilingual_Page_Translator
             $action = sanitize_key(wp_unslash($_GET['action']));
         }
 
-        return in_array($action, array('mpt_duplicate_page', 'mpt_bulk_duplicate', 'mpt_translate_options'), true);
+        return in_array($action, array('mpt_duplicate_page', 'mpt_bulk_duplicate', 'mpt_translate_options', 'mpt_duplicate_menus'), true);
     }
 
     private function should_translate_string($value)
@@ -1840,8 +1919,8 @@ final class MPT_Multilingual_Page_Translator
 
     public function maybe_flush_rewrite_rules()
     {
-        if (get_option(self::OPTION_VERSION) !== '1.0.69') {
-            update_option(self::OPTION_VERSION, '1.0.69');
+        if (get_option(self::OPTION_VERSION) !== '1.0.70') {
+            update_option(self::OPTION_VERSION, '1.0.70');
             flush_rewrite_rules();
         }
     }
