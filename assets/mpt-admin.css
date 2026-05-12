@@ -95,6 +95,18 @@
     animation: mpt-spin 0.8s linear infinite;
 }
 
+.mpt-option-language-tabs p {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.mpt-option-language-tabs .description {
+    display: block;
+    margin-top: 0;
+}
+
 @keyframes mpt-spin {
     to {
         transform: rotate(360deg);

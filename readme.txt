@@ -4,7 +4,7 @@ Tags: translation, multilingual, acf, pages, language switcher
 Requires at least: 6.0
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.0.72
+Stable tag: 1.0.73
 License: GPLv2 or later
 
 Duplicate pages into other languages, copy ACF content, update internal links, and show a clean flag language switcher.
@@ -25,6 +25,7 @@ Automatic translation can be used when a translation API is available. If no API
 * Keep image, file, gallery, color, layout, and technical values safe.
 * Replace internal page links with the matching translated page link.
 * Translate ACF option-page values, such as footer content.
+* Edit ACF option pages separately per language with admin language tabs.
 * Duplicate WordPress menus per language so editors can change them separately.
 * Show a flag dropdown in the header menu.
 * Add hreflang tags for connected published translations.

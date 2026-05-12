@@ -20,6 +20,7 @@ Automatic translation can be used when a translation API is available. If no API
 - Keep image, file, gallery, color, layout, and technical values safe.
 - Replace internal page links with the matching translated page link.
 - Translate ACF option-page values, such as footer content.
+- Edit ACF option pages separately per language with admin language tabs.
 - Duplicate WordPress menus per language so editors can change them separately.
 - Show a flag dropdown in the header menu.
 - Add `hreflang` tags for connected published translations.

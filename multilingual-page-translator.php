@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Multilingual Page Translator
  * Description: Duplicate and translate WordPress pages, including ACF fields and internal links, with a flag language dropdown for menus.
- * Version: 1.0.72
+ * Version: 1.0.73
  * Author: L.P.
  * Text Domain: multilingual-page-translator
  */
@@ -63,7 +63,10 @@ final class MPT_Multilingual_Page_Translator
         add_filter('get_custom_logo', array($this, 'filter_custom_logo_link'));
         add_filter('the_title', array($this, 'translate_attachment_title'), 10, 2);
         add_filter('acf/load_value', array($this, 'load_translated_acf_option_value'), 20, 3);
+        add_filter('acf/pre_update_value', array($this, 'save_translated_acf_option_value'), 20, 4);
         add_filter('acf/format_value', array($this, 'translate_acf_formatted_value'), 20, 3);
+        add_action('admin_notices', array($this, 'render_acf_option_language_tabs'));
+        add_action('acf/input/admin_footer', array($this, 'print_acf_option_language_field'));
         add_filter('query_vars', array($this, 'register_query_vars'));
         add_filter('page_link', array($this, 'filter_page_link'), 10, 2);
         add_filter('redirect_canonical', array($this, 'disable_language_canonical_redirect'), 10, 2);
@@ -93,17 +96,17 @@ final class MPT_Multilingual_Page_Translator
             ));
         }
 
-        update_option(self::OPTION_VERSION, '1.0.72');
+        update_option(self::OPTION_VERSION, '1.0.73');
         flush_rewrite_rules();
     }
 
     public function register_assets()
     {
         $url = plugin_dir_url(__FILE__);
-        wp_register_style('mpt-front', $url . 'assets/mpt-front.css', array(), '1.0.72');
-        wp_register_style('mpt-admin', $url . 'assets/mpt-admin.css', array(), '1.0.72');
-        wp_register_script('mpt-front', $url . 'assets/mpt-front.js', array(), '1.0.72', true);
-        wp_register_script('mpt-admin', $url . 'assets/mpt-admin.js', array(), '1.0.72', true);
+        wp_register_style('mpt-front', $url . 'assets/mpt-front.css', array(), '1.0.73');
+        wp_register_style('mpt-admin', $url . 'assets/mpt-admin.css', array(), '1.0.73');
+        wp_register_script('mpt-front', $url . 'assets/mpt-front.js', array(), '1.0.73', true);
+        wp_register_script('mpt-admin', $url . 'assets/mpt-admin.js', array(), '1.0.73', true);
     }
 
     public function enqueue_front_assets()
@@ -1797,11 +1800,15 @@ final class MPT_Multilingual_Page_Translator
 
     public function load_translated_acf_option_value($value, $post_id, $field)
     {
-        if (is_admin() || !$this->is_acf_option_post_id($post_id) || !is_array($field)) {
+        if (!$this->is_acf_option_post_id($post_id) || !is_array($field)) {
             return $value;
         }
 
-        $lang = $this->get_current_language();
+        if (is_admin() && !$this->is_acf_option_admin_page()) {
+            return $value;
+        }
+
+        $lang = is_admin() ? $this->get_admin_option_page_language() : $this->get_current_language();
         if (!$lang || $lang === $this->get_default_language()) {
             return $value;
         }
@@ -1814,6 +1821,96 @@ final class MPT_Multilingual_Page_Translator
         }
 
         return $value;
+    }
+
+    public function save_translated_acf_option_value($check, $value, $post_id, $field)
+    {
+        if (!is_admin() || !$this->is_acf_option_admin_page() || !$this->is_acf_option_post_id($post_id) || !is_array($field)) {
+            return $check;
+        }
+
+        $lang = $this->get_admin_option_page_language();
+        if (!$lang || $lang === $this->get_default_language()) {
+            return $check;
+        }
+
+        $option_names = $this->acf_option_value_names($field, $lang, $post_id);
+        if (!$option_names) {
+            return $check;
+        }
+
+        $option_name = $option_names[0];
+        $field_type = isset($field['type']) ? (string) $field['type'] : '';
+        $value = $this->clone_media_value($value, $field_type, $lang);
+        $value = $this->replace_links_in_value($value, $lang);
+
+        update_option($option_name, $value, false);
+
+        if (!empty($field['key']) && is_string($field['key'])) {
+            update_option('_' . $option_name, $field['key'], false);
+        }
+
+        return true;
+    }
+
+    public function render_acf_option_language_tabs()
+    {
+        if (!$this->is_acf_option_admin_page()) {
+            return;
+        }
+
+        $languages = $this->get_languages();
+        if (count($languages) < 2) {
+            return;
+        }
+
+        $current_lang = $this->get_admin_option_page_language();
+        $page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
+
+        echo '<div class="notice notice-info mpt-option-language-tabs"><p><strong>' . esc_html__('Option page language:', 'multilingual-page-translator') . '</strong> ';
+        foreach ($languages as $language) {
+            $code = $language['code'];
+            $url = add_query_arg(array(
+                'page' => $page,
+                'mpt_lang' => $code,
+            ), admin_url('admin.php'));
+            $class = $code === $current_lang ? 'button button-primary' : 'button';
+
+            printf(
+                ' <a class="%s" href="%s">%s %s</a>',
+                esc_attr($class),
+                esc_url($url),
+                esc_html($language['flag']),
+                esc_html($language['name'])
+            );
+        }
+        echo '</p><p class="description">' . esc_html__('Use these tabs to edit footer and other ACF option-page values separately for each language.', 'multilingual-page-translator') . '</p></div>';
+    }
+
+    public function print_acf_option_language_field()
+    {
+        if (!$this->is_acf_option_admin_page()) {
+            return;
+        }
+
+        $lang = $this->get_admin_option_page_language();
+        ?>
+        <script>
+        (function () {
+            var forms = document.querySelectorAll('form');
+            forms.forEach(function (form) {
+                if (form.querySelector('input[name="mpt_lang"]')) {
+                    return;
+                }
+                var input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'mpt_lang';
+                input.value = <?php echo wp_json_encode($lang); ?>;
+                form.appendChild(input);
+            });
+        }());
+        </script>
+        <?php
     }
 
     private function is_acf_option_post_id($post_id)
@@ -1867,6 +1964,70 @@ final class MPT_Multilingual_Page_Translator
         }
 
         return trim($post_id, '_');
+    }
+
+    private function is_acf_option_admin_page()
+    {
+        if (!is_admin() || !isset($_GET['page'])) {
+            return false;
+        }
+
+        $page = sanitize_key(wp_unslash($_GET['page']));
+        return $page !== '' && in_array($page, $this->get_acf_option_page_slugs(), true);
+    }
+
+    private function get_admin_option_page_language()
+    {
+        $lang = '';
+
+        if (isset($_POST['mpt_lang'])) {
+            $lang = sanitize_key(wp_unslash($_POST['mpt_lang']));
+        } elseif (isset($_GET['mpt_lang'])) {
+            $lang = sanitize_key(wp_unslash($_GET['mpt_lang']));
+        }
+
+        return $this->language_exists($lang) ? $lang : $this->get_default_language();
+    }
+
+    private function get_acf_option_page_slugs()
+    {
+        $slugs = array();
+
+        if (function_exists('acf_get_options_pages')) {
+            $pages = acf_get_options_pages();
+            if (is_array($pages)) {
+                foreach ($pages as $page) {
+                    if (is_array($page) && !empty($page['menu_slug'])) {
+                        $slugs[] = sanitize_key($page['menu_slug']);
+                    }
+                }
+            }
+        }
+
+        if (function_exists('acf_get_field_groups')) {
+            $groups = acf_get_field_groups();
+            if (is_array($groups)) {
+                foreach ($groups as $group) {
+                    if (empty($group['location']) || !is_array($group['location'])) {
+                        continue;
+                    }
+
+                    foreach ($group['location'] as $rule_group) {
+                        if (!is_array($rule_group)) {
+                            continue;
+                        }
+
+                        foreach ($rule_group as $rule) {
+                            if (is_array($rule) && isset($rule['param'], $rule['value']) && $rule['param'] === 'options_page') {
+                                $slugs[] = sanitize_key($rule['value']);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return array_values(array_unique(array_filter($slugs)));
     }
 
     private function translate_option_values($source_lang, $target_lang)
@@ -2042,8 +2203,8 @@ final class MPT_Multilingual_Page_Translator
 
     public function maybe_flush_rewrite_rules()
     {
-        if (get_option(self::OPTION_VERSION) !== '1.0.72') {
-            update_option(self::OPTION_VERSION, '1.0.72');
+        if (get_option(self::OPTION_VERSION) !== '1.0.73') {
+            update_option(self::OPTION_VERSION, '1.0.73');
             flush_rewrite_rules();
         }
     }
