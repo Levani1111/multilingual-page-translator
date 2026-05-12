@@ -20,6 +20,7 @@ Automatic translation can be used when a translation API is available. If no API
 - Keep image, file, gallery, color, layout, and technical values safe.
 - Replace internal page links with the matching translated page link.
 - Translate ACF option-page values, such as footer content.
+- Duplicate WordPress menus per language so editors can change them separately.
 - Show a flag dropdown in the header menu.
 - Add `hreflang` tags for connected published translations.
 - Create translated pages as drafts or pending review, so an editor can check them first.
@@ -31,7 +32,8 @@ Automatic translation can be used when a translation API is available. If no API
 3. Go to **Page Translator** in the admin menu.
 4. Set the site languages.
 5. Duplicate or translate pages.
-6. Review and publish the translated pages.
+6. Duplicate menus if each language needs its own editable menu.
+7. Review and publish the translated pages.
 
 ## Language URLs
 

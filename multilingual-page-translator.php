@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Multilingual Page Translator
  * Description: Duplicate and translate WordPress pages, including ACF fields and internal links, with a flag language dropdown for menus.
- * Version: 1.0.68
+ * Version: 1.0.69
  * Author: L.P.
  * Text Domain: multilingual-page-translator
  */
@@ -21,6 +21,9 @@ final class MPT_Multilingual_Page_Translator
     const META_SOURCE = '_mpt_source_post';
     const META_SOURCE_ATTACHMENT = '_mpt_source_attachment';
     const META_REVIEW = '_mpt_translation_review';
+    const MENU_META_LANG = '_mpt_menu_lang';
+    const MENU_META_SOURCE = '_mpt_source_menu';
+    const MENU_META_LOCATION = '_mpt_source_location';
     const NONCE = 'mpt_nonce';
 
     private static $instance = null;
@@ -49,10 +52,12 @@ final class MPT_Multilingual_Page_Translator
         add_action('admin_post_mpt_duplicate_page', array($this, 'handle_duplicate_page'));
         add_action('admin_post_mpt_bulk_duplicate', array($this, 'handle_bulk_duplicate'));
         add_action('admin_post_mpt_translate_options', array($this, 'handle_translate_options'));
+        add_action('admin_post_mpt_duplicate_menus', array($this, 'handle_duplicate_menus'));
         add_action('admin_post_mpt_save_settings', array($this, 'handle_save_settings'));
         add_action('wp_enqueue_scripts', array($this, 'enqueue_front_assets'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_assets'));
         add_filter('pre_option', array($this, 'load_translated_option_value'), 10, 3);
+        add_filter('wp_nav_menu_args', array($this, 'switch_language_menu_args'), 5);
         add_filter('wp_nav_menu_objects', array($this, 'translate_menu_objects'), 10, 2);
         add_filter('wp_nav_menu_items', array($this, 'append_switcher_to_menu'), 10, 2);
         add_filter('get_custom_logo', array($this, 'filter_custom_logo_link'));
@@ -87,17 +92,17 @@ final class MPT_Multilingual_Page_Translator
             ));
         }
 
-        update_option(self::OPTION_VERSION, '1.0.68');
+        update_option(self::OPTION_VERSION, '1.0.69');
         flush_rewrite_rules();
     }
 
     public function register_assets()
     {
         $url = plugin_dir_url(__FILE__);
-        wp_register_style('mpt-front', $url . 'assets/mpt-front.css', array(), '1.0.68');
-        wp_register_style('mpt-admin', $url . 'assets/mpt-admin.css', array(), '1.0.68');
-        wp_register_script('mpt-front', $url . 'assets/mpt-front.js', array(), '1.0.68', true);
-        wp_register_script('mpt-admin', $url . 'assets/mpt-admin.js', array(), '1.0.68', true);
+        wp_register_style('mpt-front', $url . 'assets/mpt-front.css', array(), '1.0.69');
+        wp_register_style('mpt-admin', $url . 'assets/mpt-admin.css', array(), '1.0.69');
+        wp_register_script('mpt-front', $url . 'assets/mpt-front.js', array(), '1.0.69', true);
+        wp_register_script('mpt-admin', $url . 'assets/mpt-admin.js', array(), '1.0.69', true);
     }
 
     public function enqueue_front_assets()
@@ -372,6 +377,30 @@ final class MPT_Multilingual_Page_Translator
         echo '<p class="description">' . esc_html__('Translates ACF option-page values such as footer text. The default-language options stay unchanged.', 'multilingual-page-translator') . '</p>';
         submit_button(__('Translate Options', 'multilingual-page-translator'), 'secondary');
         echo '</form>';
+
+        echo '<hr>';
+        echo '<h2>' . esc_html__('Duplicate Menus', 'multilingual-page-translator') . '</h2>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" data-mpt-progress="settings">';
+        wp_nonce_field(self::NONCE, self::NONCE);
+        echo '<input type="hidden" name="action" value="mpt_duplicate_menus">';
+        echo '<p><label for="menus_source_lang">' . esc_html__('Source language', 'multilingual-page-translator') . '</label></p>';
+        echo '<select id="menus_source_lang" name="source_lang">';
+        foreach ($languages as $language) {
+            printf('<option value="%s" %s>%s %s</option>', esc_attr($language['code']), selected($settings['default_language'], $language['code'], false), esc_html($language['flag']), esc_html($language['name']));
+        }
+        echo '</select>';
+        echo '<p><label for="menus_target_lang">' . esc_html__('Target language', 'multilingual-page-translator') . '</label></p>';
+        echo '<select id="menus_target_lang" name="target_lang">';
+        foreach ($languages as $language) {
+            if ($language['code'] === $settings['default_language']) {
+                continue;
+            }
+            printf('<option value="%s" %s>%s %s</option>', esc_attr($language['code']), selected($default_target_language, $language['code'], false), esc_html($language['flag']), esc_html($language['name']));
+        }
+        echo '</select>';
+        echo '<p class="description">' . esc_html__('Creates separate editable WordPress menus for the target language. Existing translated menus are not overwritten.', 'multilingual-page-translator') . '</p>';
+        submit_button(__('Duplicate Menus', 'multilingual-page-translator'), 'secondary');
+        echo '</form>';
         echo '</section>';
 
         echo '<section class="mpt-panel">';
@@ -578,6 +607,162 @@ final class MPT_Multilingual_Page_Translator
         /* translators: %d: Number of option values translated. */
         wp_safe_redirect(add_query_arg('mpt_notice', rawurlencode(sprintf(__('Translated %d option value(s).', 'multilingual-page-translator'), $count)), admin_url('admin.php?page=mpt-translator')));
         exit;
+    }
+
+    public function handle_duplicate_menus()
+    {
+        $this->require_admin_nonce();
+
+        $source_lang = isset($_POST['source_lang']) ? sanitize_key(wp_unslash($_POST['source_lang'])) : $this->get_default_language();
+        $target_lang = isset($_POST['target_lang']) ? sanitize_key(wp_unslash($_POST['target_lang'])) : '';
+
+        if (!$this->language_exists($source_lang) || !$this->language_exists($target_lang) || $source_lang === $target_lang) {
+            wp_die(esc_html__('Choose two different valid languages.', 'multilingual-page-translator'));
+        }
+
+        $result = $this->duplicate_language_menus($source_lang, $target_lang);
+        $notice = sprintf(
+            /* translators: 1: Number of menus created. 2: Number of existing menus skipped. */
+            __('Created %1$d translated menu(s). Kept %2$d existing translated menu(s).', 'multilingual-page-translator'),
+            $result['created'],
+            $result['existing']
+        );
+
+        wp_safe_redirect(add_query_arg('mpt_notice', rawurlencode($notice), admin_url('admin.php?page=mpt-translator')));
+        exit;
+    }
+
+    private function duplicate_language_menus($source_lang, $target_lang)
+    {
+        $locations = $this->get_source_menu_locations();
+        $created = 0;
+        $existing = 0;
+
+        foreach ($locations as $location => $source_menu_id) {
+            update_term_meta($source_menu_id, self::MENU_META_LANG, $source_lang);
+            update_term_meta($source_menu_id, self::MENU_META_LOCATION, $location);
+
+            $target_menu_id = $this->get_translated_menu_id($source_menu_id, $target_lang, $location);
+            if ($target_menu_id) {
+                $existing++;
+                continue;
+            }
+
+            $target_menu_id = $this->create_translated_menu($source_menu_id, $source_lang, $target_lang, $location);
+            if ($target_menu_id) {
+                $created++;
+            }
+        }
+
+        return array(
+            'created' => $created,
+            'existing' => $existing,
+        );
+    }
+
+    private function get_source_menu_locations()
+    {
+        $settings = $this->get_settings();
+        $assigned_locations = get_nav_menu_locations();
+        $locations = array();
+
+        foreach ($assigned_locations as $location => $menu_id) {
+            $menu_id = (int) $menu_id;
+            if (!$menu_id) {
+                continue;
+            }
+
+            if ($settings['menu_location'] && $location !== $settings['menu_location']) {
+                continue;
+            }
+
+            $locations[$location] = $menu_id;
+        }
+
+        return $locations;
+    }
+
+    private function create_translated_menu($source_menu_id, $source_lang, $target_lang, $location)
+    {
+        $source_menu = wp_get_nav_menu_object($source_menu_id);
+        if (!$source_menu) {
+            return 0;
+        }
+
+        $target_menu_id = wp_create_nav_menu($source_menu->name . ' (' . strtoupper($target_lang) . ')');
+        if (is_wp_error($target_menu_id) || !$target_menu_id) {
+            return 0;
+        }
+
+        update_term_meta($target_menu_id, self::MENU_META_LANG, $target_lang);
+        update_term_meta($target_menu_id, self::MENU_META_SOURCE, (int) $source_menu_id);
+        update_term_meta($target_menu_id, self::MENU_META_LOCATION, $location);
+        $this->copy_menu_items($source_menu_id, $target_menu_id, $source_lang, $target_lang);
+
+        return (int) $target_menu_id;
+    }
+
+    private function copy_menu_items($source_menu_id, $target_menu_id, $source_lang, $target_lang)
+    {
+        $items = wp_get_nav_menu_items($source_menu_id, array('post_status' => 'any'));
+        if (!$items || is_wp_error($items)) {
+            return;
+        }
+
+        $created_items = array();
+        foreach ($items as $item) {
+            $parent_id = !empty($item->menu_item_parent) && isset($created_items[(int) $item->menu_item_parent]) ? $created_items[(int) $item->menu_item_parent] : 0;
+            $type = (string) $item->type;
+            $object = (string) $item->object;
+            $object_id = (int) $item->object_id;
+            $url = (string) $item->url;
+            $title = (string) $item->title;
+
+            if ($type === 'post_type' && $object === 'page') {
+                $translated_id = $this->get_translated_menu_page_id($object_id, $target_lang);
+                if ($translated_id) {
+                    $object_id = $translated_id;
+                    $url = '';
+                    $title = get_the_title($translated_id);
+                }
+            } elseif ($type === 'custom') {
+                $url = $this->translate_menu_url($url, $target_lang);
+            }
+
+            if ($title !== '') {
+                $title = $this->translate_persistent_string($title, $source_lang, $target_lang, 'menu_title_copy_' . (int) $item->db_id);
+            }
+
+            $new_item_id = wp_update_nav_menu_item($target_menu_id, 0, array(
+                'menu-item-object-id' => $object_id,
+                'menu-item-object' => $object,
+                'menu-item-parent-id' => $parent_id,
+                'menu-item-position' => (int) $item->menu_order,
+                'menu-item-type' => $type,
+                'menu-item-title' => $title,
+                'menu-item-url' => $url,
+                'menu-item-description' => (string) $item->description,
+                'menu-item-attr-title' => (string) $item->attr_title,
+                'menu-item-target' => (string) $item->target,
+                'menu-item-classes' => is_array($item->classes) ? implode(' ', array_filter($item->classes)) : '',
+                'menu-item-xfn' => (string) $item->xfn,
+                'menu-item-status' => 'publish',
+            ));
+
+            if (!is_wp_error($new_item_id) && $new_item_id) {
+                $created_items[(int) $item->db_id] = (int) $new_item_id;
+            }
+        }
+    }
+
+    private function get_translated_menu_page_id($page_id, $target_lang)
+    {
+        $group = $this->get_post_group($page_id, false);
+        if (!$group) {
+            return 0;
+        }
+
+        return $this->get_translation_id($group, $target_lang, array('publish', 'draft', 'private', 'pending'));
     }
 
     private function duplicate_page($source_id, $target_lang, $auto_translate)
@@ -1655,8 +1840,8 @@ final class MPT_Multilingual_Page_Translator
 
     public function maybe_flush_rewrite_rules()
     {
-        if (get_option(self::OPTION_VERSION) !== '1.0.68') {
-            update_option(self::OPTION_VERSION, '1.0.68');
+        if (get_option(self::OPTION_VERSION) !== '1.0.69') {
+            update_option(self::OPTION_VERSION, '1.0.69');
             flush_rewrite_rules();
         }
     }
@@ -1795,6 +1980,11 @@ final class MPT_Multilingual_Page_Translator
             return $items;
         }
 
+        $menu_id = $this->get_menu_id_from_args($args);
+        if ($menu_id && get_term_meta($menu_id, self::MENU_META_LANG, true) === $target_lang) {
+            return $items;
+        }
+
         foreach ($items as $item) {
             if (!is_object($item)) {
                 continue;
@@ -1841,6 +2031,87 @@ final class MPT_Multilingual_Page_Translator
         }
 
         return $this->replace_links_in_value($url, $target_lang, array('publish'));
+    }
+
+    public function switch_language_menu_args($args)
+    {
+        if (is_admin() || !is_array($args)) {
+            return $args;
+        }
+
+        $target_lang = $this->get_current_language();
+        if (!$target_lang || $target_lang === $this->get_default_language()) {
+            return $args;
+        }
+
+        $settings = $this->get_settings();
+        $location = isset($args['theme_location']) ? (string) $args['theme_location'] : '';
+        if ($settings['menu_location'] && $location !== $settings['menu_location']) {
+            return $args;
+        }
+
+        $source_menu_id = $this->get_menu_id_from_args($args);
+        if (!$source_menu_id) {
+            return $args;
+        }
+
+        $translated_menu_id = $this->get_translated_menu_id($source_menu_id, $target_lang, $location);
+        if ($translated_menu_id) {
+            $args['menu'] = $translated_menu_id;
+        }
+
+        return $args;
+    }
+
+    private function get_menu_id_from_args($args)
+    {
+        $menu_arg = is_array($args) && isset($args['menu']) ? $args['menu'] : (is_object($args) && isset($args->menu) ? $args->menu : 0);
+        if ($menu_arg) {
+            $menu = wp_get_nav_menu_object($menu_arg);
+            if ($menu) {
+                return (int) $menu->term_id;
+            }
+        }
+
+        $location = is_array($args) && isset($args['theme_location']) ? (string) $args['theme_location'] : (is_object($args) && isset($args->theme_location) ? (string) $args->theme_location : '');
+        if (!$location) {
+            return 0;
+        }
+
+        $locations = get_nav_menu_locations();
+        return isset($locations[$location]) ? (int) $locations[$location] : 0;
+    }
+
+    private function get_translated_menu_id($source_menu_id, $target_lang, $location = '')
+    {
+        $meta_query = array(
+            'relation' => 'AND',
+            array(
+                'key' => self::MENU_META_SOURCE,
+                'value' => (int) $source_menu_id,
+            ),
+            array(
+                'key' => self::MENU_META_LANG,
+                'value' => $target_lang,
+            ),
+        );
+
+        if ($location !== '') {
+            $meta_query[] = array(
+                'key' => self::MENU_META_LOCATION,
+                'value' => $location,
+            );
+        }
+
+        $menus = get_terms(array(
+            'taxonomy' => 'nav_menu',
+            'hide_empty' => false,
+            'number' => 1,
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Required to find the editable menu copy for the current language.
+            'meta_query' => $meta_query,
+        ));
+
+        return !empty($menus) && !is_wp_error($menus) ? (int) $menus[0]->term_id : 0;
     }
 
     public function translate_attachment_title($title, $post_id)
