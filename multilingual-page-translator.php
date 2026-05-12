@@ -1023,6 +1023,7 @@ final class MPT_Multilingual_Page_Translator
             'posts_per_page' => 1,
             'fields' => 'ids',
             'no_found_rows' => true,
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Required to reuse an existing cloned attachment for the same source file and language.
             'meta_query' => array(
                 array(
                     'key' => self::META_SOURCE_ATTACHMENT,
