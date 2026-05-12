@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Multilingual Page Translator
  * Description: Duplicate and translate WordPress pages, including ACF fields and internal links, with a flag language dropdown for menus.
- * Version: 1.0.71
+ * Version: 1.0.72
  * Author: L.P.
  * Text Domain: multilingual-page-translator
  */
@@ -93,17 +93,17 @@ final class MPT_Multilingual_Page_Translator
             ));
         }
 
-        update_option(self::OPTION_VERSION, '1.0.71');
+        update_option(self::OPTION_VERSION, '1.0.72');
         flush_rewrite_rules();
     }
 
     public function register_assets()
     {
         $url = plugin_dir_url(__FILE__);
-        wp_register_style('mpt-front', $url . 'assets/mpt-front.css', array(), '1.0.71');
-        wp_register_style('mpt-admin', $url . 'assets/mpt-admin.css', array(), '1.0.71');
-        wp_register_script('mpt-front', $url . 'assets/mpt-front.js', array(), '1.0.71', true);
-        wp_register_script('mpt-admin', $url . 'assets/mpt-admin.js', array(), '1.0.71', true);
+        wp_register_style('mpt-front', $url . 'assets/mpt-front.css', array(), '1.0.72');
+        wp_register_style('mpt-admin', $url . 'assets/mpt-admin.css', array(), '1.0.72');
+        wp_register_script('mpt-front', $url . 'assets/mpt-front.js', array(), '1.0.72', true);
+        wp_register_script('mpt-admin', $url . 'assets/mpt-admin.js', array(), '1.0.72', true);
     }
 
     public function enqueue_front_assets()
@@ -1806,7 +1806,7 @@ final class MPT_Multilingual_Page_Translator
             return $value;
         }
 
-        foreach ($this->acf_option_value_names($field, $lang) as $option_name) {
+        foreach ($this->acf_option_value_names($field, $lang, $post_id) as $option_name) {
             $translated_value = get_option($option_name, null);
             if ($translated_value !== null) {
                 return maybe_unserialize($translated_value);
@@ -1822,10 +1822,10 @@ final class MPT_Multilingual_Page_Translator
             return false;
         }
 
-        return in_array($post_id, array('option', 'options'), true) || strpos($post_id, 'options_') === 0;
+        return !is_numeric($post_id);
     }
 
-    private function acf_option_value_names($field, $lang)
+    private function acf_option_value_names($field, $lang, $post_id = 'options')
     {
         $names = array();
         $field_name = isset($field['name']) ? (string) $field['name'] : '';
@@ -1833,9 +1833,10 @@ final class MPT_Multilingual_Page_Translator
             return $names;
         }
 
-        $default_prefix = 'options_';
-        $target_prefix = 'options_' . sanitize_key($lang) . '_';
-        $default_lang_prefix = 'options_' . $this->get_default_language() . '_';
+        $base_prefix = $this->acf_option_post_id_prefix($post_id);
+        $default_prefix = $base_prefix . '_';
+        $target_prefix = $base_prefix . '_' . sanitize_key($lang) . '_';
+        $default_lang_prefix = $base_prefix . '_' . $this->get_default_language() . '_';
 
         if (strpos($field_name, $target_prefix) === 0) {
             $names[] = $field_name;
@@ -1848,13 +1849,24 @@ final class MPT_Multilingual_Page_Translator
         }
 
         if (!empty($field['key']) && is_string($field['key'])) {
-            $reference_value = get_option('_options_' . $field_name, null);
+            $reference_value = get_option('_' . $base_prefix . '_' . $field_name, null);
             if ($reference_value === $field['key']) {
                 $names[] = $target_prefix . $field_name;
             }
         }
 
         return array_values(array_unique(array_filter($names)));
+    }
+
+    private function acf_option_post_id_prefix($post_id)
+    {
+        $post_id = is_string($post_id) && $post_id !== '' ? $post_id : 'options';
+
+        if (in_array($post_id, array('option', 'options'), true)) {
+            return 'options';
+        }
+
+        return trim($post_id, '_');
     }
 
     private function translate_option_values($source_lang, $target_lang)
@@ -1866,86 +1878,134 @@ final class MPT_Multilingual_Page_Translator
     {
         global $wpdb;
 
-        $source_prefix = $source_lang === $this->get_default_language() ? 'options_' : 'options_' . $source_lang . '_';
-        $source_reference_prefix = $source_lang === $this->get_default_language() ? '_options_' : '_options_' . $source_lang . '_';
-        $cache_key = 'mpt_option_rows_' . md5($source_prefix . '|' . $source_reference_prefix);
-        $rows = wp_cache_get($cache_key, 'multilingual-page-translator');
-
-        if (!is_array($rows)) {
-            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- ACF option fields are stored as dynamic option names; results are cached above.
-            $rows = $wpdb->get_results($wpdb->prepare(
-                "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s ORDER BY option_name ASC",
-                $wpdb->esc_like($source_prefix) . '%',
-                $wpdb->esc_like($source_reference_prefix) . '%'
-            ), ARRAY_A);
-            wp_cache_set($cache_key, $rows, 'multilingual-page-translator', MINUTE_IN_SECONDS);
-        }
-
         $count = 0;
-        foreach ($rows as $row) {
-            $option_name = (string) $row['option_name'];
-            if ($this->is_translated_acf_option_name($option_name)) {
-                continue;
+        foreach ($this->get_acf_option_prefixes() as $base_prefix) {
+            $source_prefix = $source_lang === $this->get_default_language() ? $base_prefix . '_' : $base_prefix . '_' . $source_lang . '_';
+            $source_reference_prefix = '_' . $source_prefix;
+            $cache_key = 'mpt_option_rows_' . md5($source_prefix . '|' . $source_reference_prefix);
+            $rows = wp_cache_get($cache_key, 'multilingual-page-translator');
+
+            if (!is_array($rows)) {
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- ACF option fields are stored as dynamic option names; results are cached above.
+                $rows = $wpdb->get_results($wpdb->prepare(
+                    "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s ORDER BY option_name ASC",
+                    $wpdb->esc_like($source_prefix) . '%',
+                    $wpdb->esc_like($source_reference_prefix) . '%'
+                ), ARRAY_A);
+                wp_cache_set($cache_key, $rows, 'multilingual-page-translator', MINUTE_IN_SECONDS);
             }
 
-            $target_option_name = $this->translated_acf_option_name($option_name, $target_lang);
-            if (!$target_option_name) {
-                continue;
-            }
+            foreach ($rows as $row) {
+                $option_name = (string) $row['option_name'];
+                if ($this->is_translated_acf_option_name($option_name)) {
+                    continue;
+                }
 
-            $value = maybe_unserialize($row['option_value']);
-            $field_type = $this->get_acf_option_field_type($option_name);
-            $value = $this->clone_media_value($value, $field_type, $target_lang);
-            if (strpos($option_name, '_options_') === 0) {
+                $target_option_name = $this->translated_acf_option_name_for_prefix($option_name, $target_lang, $source_lang, $base_prefix);
+                if (!$target_option_name) {
+                    continue;
+                }
+
+                $value = maybe_unserialize($row['option_value']);
+                $field_type = $this->get_acf_option_field_type($option_name);
+                $value = $this->clone_media_value($value, $field_type, $target_lang);
+                if (strpos($option_name, '_' . $base_prefix . '_') === 0) {
+                    update_option($target_option_name, $value, false);
+                    $count++;
+                    continue;
+                }
+
+                if ($auto_translate && $this->should_translate_acf_value($option_name, $value, $field_type)) {
+                    $value = $this->translate_meta_value($value, $source_lang, $target_lang);
+                }
+                $value = $this->replace_links_in_value($value, $target_lang);
+
                 update_option($target_option_name, $value, false);
                 $count++;
-                continue;
             }
-
-            if ($auto_translate && $this->should_translate_acf_value($option_name, $value, $field_type)) {
-                $value = $this->translate_meta_value($value, $source_lang, $target_lang);
-            }
-            $value = $this->replace_links_in_value($value, $target_lang);
-
-            update_option($target_option_name, $value, false);
-            $count++;
         }
 
         return $count;
     }
 
-    private function is_default_acf_option_name($option_name)
+    private function get_acf_option_prefixes()
     {
-        if (strpos($option_name, 'options_') !== 0 && strpos($option_name, '_options_') !== 0) {
-            return false;
+        $prefixes = array('options');
+
+        if (function_exists('acf_get_options_pages')) {
+            $pages = acf_get_options_pages();
+            if (is_array($pages)) {
+                foreach ($pages as $page) {
+                    if (!is_array($page)) {
+                        continue;
+                    }
+
+                    $post_id = isset($page['post_id']) && is_string($page['post_id']) && $page['post_id'] !== '' ? $page['post_id'] : 'options';
+                    $prefixes[] = $this->acf_option_post_id_prefix($post_id);
+                }
+            }
         }
 
-        return !$this->is_translated_acf_option_name($option_name);
+        return array_values(array_unique(array_filter($prefixes)));
+    }
+
+    private function is_default_acf_option_name($option_name)
+    {
+        foreach ($this->get_acf_option_prefixes() as $base_prefix) {
+            if (strpos($option_name, $base_prefix . '_') === 0 || strpos($option_name, '_' . $base_prefix . '_') === 0) {
+                return !$this->is_translated_acf_option_name($option_name);
+            }
+        }
+
+        return false;
     }
 
     private function is_translated_acf_option_name($option_name)
     {
-        $prefix = strpos($option_name, '_options_') === 0 ? '_options_' : (strpos($option_name, 'options_') === 0 ? 'options_' : '');
-        if (!$prefix) {
-            return false;
+        foreach ($this->get_acf_option_prefixes() as $base_prefix) {
+            $prefixes = array('_' . $base_prefix . '_', $base_prefix . '_');
+            foreach ($prefixes as $prefix) {
+                if (strpos($option_name, $prefix) !== 0) {
+                    continue;
+                }
+
+                $rest = substr($option_name, strlen($prefix));
+                $code = strtok($rest, '_');
+                if ($code && $this->language_exists($code)) {
+                    return true;
+                }
+            }
         }
 
-        $rest = substr($option_name, strlen($prefix));
-        $code = strtok($rest, '_');
-        return $code && $this->language_exists($code);
+        return false;
     }
 
     private function translated_acf_option_name($option_name, $target_lang)
     {
-        if (strpos($option_name, '_options_') === 0) {
-            return '_options_' . $target_lang . '_' . substr($option_name, 9);
-        }
-
-        if (strpos($option_name, 'options_') === 0) {
-            return 'options_' . $target_lang . '_' . substr($option_name, 8);
+        foreach ($this->get_acf_option_prefixes() as $base_prefix) {
+            $translated = $this->translated_acf_option_name_for_prefix($option_name, $target_lang, $this->get_default_language(), $base_prefix);
+            if ($translated) {
+                return $translated;
+            }
         }
 
         return '';
+    }
+
+    private function translated_acf_option_name_for_prefix($option_name, $target_lang, $source_lang, $base_prefix)
+    {
+        $is_reference = strpos($option_name, '_') === 0;
+        $plain_name = $is_reference ? substr($option_name, 1) : $option_name;
+        $source_prefix = $source_lang === $this->get_default_language() ? $base_prefix . '_' : $base_prefix . '_' . $source_lang . '_';
+
+        if (strpos($plain_name, $source_prefix) !== 0) {
+            return '';
+        }
+
+        $target_prefix = $base_prefix . '_' . $target_lang . '_';
+        $target_name = $target_prefix . substr($plain_name, strlen($source_prefix));
+
+        return $is_reference ? '_' . $target_name : $target_name;
     }
 
     private function replace_page_id_links($value, $source_page_id, $translated_id)
@@ -1982,8 +2042,8 @@ final class MPT_Multilingual_Page_Translator
 
     public function maybe_flush_rewrite_rules()
     {
-        if (get_option(self::OPTION_VERSION) !== '1.0.71') {
-            update_option(self::OPTION_VERSION, '1.0.71');
+        if (get_option(self::OPTION_VERSION) !== '1.0.72') {
+            update_option(self::OPTION_VERSION, '1.0.72');
             flush_rewrite_rules();
         }
     }

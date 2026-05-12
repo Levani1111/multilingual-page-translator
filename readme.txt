@@ -4,7 +4,7 @@ Tags: translation, multilingual, acf, pages, language switcher
 Requires at least: 6.0
 Tested up to: 6.5
 Requires PHP: 7.4
-Stable tag: 1.0.71
+Stable tag: 1.0.72
 License: GPLv2 or later
 
 Duplicate pages into other languages, copy ACF content, update internal links, and show a clean flag language switcher.
